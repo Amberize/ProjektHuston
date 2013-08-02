@@ -10,7 +10,7 @@ class Connection: public QTcpSocket
 public:
     Connection(QObject *parent = 0);
 
-    void sendFlyingData(QVector<int> data);
+    void sendFlyingData(int* data);
 
 public slots:
     void sendPing();

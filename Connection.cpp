@@ -15,13 +15,7 @@ void Connection::sendPing()
     write(msg);
 }
 
-void Connection::sendFlyingData(QVector<int> data)
+void Connection::sendFlyingData(int *data)
 {
-//    QByteArray msg;
-//    msg.append(QString("%1/%2/%3/%4")
-//            .arg(QString::number(data[0]))
-//            .arg(QString::number(data[1]))
-//            .arg(QString::number(data[2]))
-//            .arg(QString::number(data[3])));
-    write( (char*) data.data(), sizeof( int[4] ) );
+    write( (char*) data, sizeof( int[4] ) );
 }

@@ -1,218 +1,220 @@
 #include "MainWindow.h"
 
-#include <QStatusBar>
-#include <QListIterator>
-#include <QStringList>
-
-#define UPDATE_KEYS_TIME 100
-#define TEST_ADDRESS "192.168.103.30:5000"
-
-MainWindow::MainWindow() {
+MainWindow::MainWindow()
+{
+  for( int i = 0; i < 4; ++i )
     setWindowTitle("Projekt Huston");
-    status_label = new QLabel(QString("No connection"), this);
-    statusBar()->addWidget(status_label);
+  m_cStatusLabel = new QLabel("No connection", this);
+  statusBar()->addWidget(m_cStatusLabel);
 
-    central_widget = new QWidget(this);
-    layout = new QGridLayout(central_widget);
+  m_cWidget = new QWidget(this);
+  m_cLayout = new QGridLayout(m_cWidget);
 
-    server_edit = new QLineEdit(TEST_ADDRESS, central_widget);
+  m_cServerEdit = new QLineEdit(S_TEST_ADDRESS, m_cWidget);
+  m_cBtnConnect = new QPushButton("Connect", m_cWidget);
+  m_cBtnPing    = new QPushButton("Ping", m_cWidget);
+  m_cBtnControl = new QPushButton("Start control", m_cWidget);
+  m_ceThrottle  = new QProgressBar(m_cWidget);
+  m_ceRoll      = new QProgressBar(m_cWidget);
+  m_cePitch     = new QProgressBar(m_cWidget);
+  m_ceYaw       = new QProgressBar(m_cWidget);
 
-    connect_button = new QPushButton(QString("Connect"), central_widget);
-    QObject::connect(connect_button, SIGNAL(clicked()), this, SLOT(openConnection()));
+  m_ceThrottle->setRange(I_MIN_DATA,I_MAX_DATA);
+  m_ceRoll->setRange(I_MIN_DATA,I_MAX_DATA);
+  m_cePitch->setRange(I_MIN_DATA,I_MAX_DATA);
+  m_ceYaw->setRange(I_MIN_DATA,I_MAX_DATA);
 
-    ping_button = new QPushButton(QString("Ping"), central_widget);
 
-    control_button = new QPushButton(QString("Start control"), central_widget);
-    QObject::connect(control_button, SIGNAL(clicked()), this, SLOT(startControl()));
+  m_cBtnControl->setCheckable( true );
 
-    throttle_label = new QLabel(QString("Throttle"), central_widget);
+  m_cLayout->addWidget(m_cServerEdit, 0, 0, 1, 2);
+  m_cLayout->addWidget(m_cBtnConnect, 0, 2);
+  m_cLayout->addWidget(m_cBtnPing, 0, 3);
+  m_cLayout->addWidget(m_cBtnControl, 1, 3);
 
-    throttle_edit = new QLineEdit(QString("1500"), central_widget);
+  QLabel* tmp_lb;
+  tmp_lb = new QLabel("Throttle", m_cWidget);
+  tmp_lb->setFixedWidth( I_LABELS_WIDTH );
+  m_cLayout->addWidget( tmp_lb, 1, 0);
+  m_cLayout->addWidget(m_ceThrottle, 1, 1, 1, 2);
 
-    roll_label = new QLabel(QString("Roll"), central_widget);
+  m_cLayout->addWidget(new QLabel("Roll", m_cWidget), 2, 0);
+  m_cLayout->addWidget(m_ceRoll, 2, 1, 1, 2);
 
-    roll_edit = new QLineEdit(QString("1500"), central_widget);
+  m_cLayout->addWidget(new QLabel("Pitch", m_cWidget), 3, 0);
+  m_cLayout->addWidget(m_cePitch, 3, 1, 1, 2);
 
-    pitch_label = new QLabel(QString("Pitch"), central_widget);
+  m_cLayout->addWidget(new QLabel("Yaw", m_cWidget), 4, 0);
+  m_cLayout->addWidget(m_ceYaw, 4, 1, 1, 2);
 
-    pitch_edit = new QLineEdit(QString("1500"), central_widget);
+  setCentralWidget(m_cWidget);
 
-    yaw_label = new QLabel(QString("Yaw"), central_widget);
+  m_cConnection = new Connection(m_cWidget);
 
-    yaw_edit = new QLineEdit(QString("1500"), central_widget);
 
-    layout->addWidget(server_edit, 0, 0);
-    layout->addWidget(connect_button, 0, 1);
-    layout->addWidget(ping_button, 0, 2);
-    layout->addWidget(control_button, 1, 2);
+  //SDL
+  m_cJoystick = NULL;
+  m_cData = NULL;
+  SDL_Init( SDL_INIT_JOYSTICK );
 
-    layout->addWidget(throttle_label, 1, 0);
-    layout->addWidget(throttle_edit, 1, 1);
+  if(SDL_NumJoysticks() > 0)
+  {
+    m_cJoystick = SDL_JoystickOpen(0);
+    m_cStatusLabel->setText( "Joystick: " + QString(SDL_JoystickName(0)) );
+    m_cData = new ControllerData(m_cJoystick, this);
+  }
 
-    layout->addWidget(roll_label, 2, 0);
-    layout->addWidget(roll_edit, 2, 1);
+  connect( this,    SIGNAL( stopUpdate()      ),
+           m_cData,   SLOT( stop()            ) );
+  connect( m_cData, SIGNAL( dataUpdated(int*) ),
+           this,      SLOT( updateData(int*)  ) );
+  connect(m_cBtnPing, SIGNAL(clicked()), m_cConnection, SLOT(sendPing()));
+  connect(m_cBtnConnect, SIGNAL(clicked()), this, SLOT(openConnection()));
+  connect(m_cBtnControl, SIGNAL(clicked()), this, SLOT(startControl()));
 
-    layout->addWidget(pitch_label, 3, 0);
-    layout->addWidget(pitch_edit, 3, 1);
+  setFixedHeight(200);
+  resize(600, height());
 
-    layout->addWidget(yaw_label, 4, 0);
-    layout->addWidget(yaw_edit, 4, 1);
-
-    setCentralWidget(central_widget);
-
-    connection = new Connection(this);
-    QObject::connect(ping_button, SIGNAL(clicked()), connection, SLOT(sendPing()));
-
-    pressed_keys = new QList<int>();
-    keys_timer = new QTimer(this);
-    QObject::connect(keys_timer, SIGNAL(timeout()), this, SLOT(processKeys()));
 }
 
-void MainWindow::keyPressEvent(QKeyEvent *event)
+MainWindow::~MainWindow()
 {
-    int key = event->key();
-    if( !pressed_keys->contains(key) )
-    {
-        pressed_keys->append(key);
-    }
+  emit stopUpdate();
+  if( m_cData->isRunning() )
+    while( ! m_cData->isFinished() );
+  if( m_cJoystick != NULL ) SDL_JoystickClose( m_cJoystick );
+  SDL_Quit();
 }
 
-void MainWindow::keyReleaseEvent(QKeyEvent *event)
+void MainWindow::updateData(int *data)
 {
-    int index = pressed_keys->indexOf(event->key());
-    pressed_keys->removeAt(index);
-}
+  //throttle axis
+#ifdef INVERT_THROTTLE
+  if( data[I_THROTTLE_AXIS] > 0 )
+    m_aData[A_THROTTLE] = I_MID_DATA + (double)(I_MID_DATA - I_MIN_DATA) * ( (double)data[I_THROTTLE_AXIS] / I_INT_MAX );
+  else
+    m_aData[A_THROTTLE] = I_MID_DATA + (double)(I_MAX_DATA - I_MID_DATA) * ( (double)data[I_THROTTLE_AXIS] / I_INT_MAX );
+#else
+  if( data[I_THROTTLE_AXIS] > 0 )
+    m_aData[A_THROTTLE] = I_MID_DATA - (double)(I_MAX_DATA - I_MID_DATA) * ( (double)data[I_THROTTLE_AXIS] / I_INT_MAX );
+  else
+    m_aData[A_THROTTLE] = I_MID_DATA - (double)(I_MID_DATA - I_MIN_DATA) * ( (double)data[I_THROTTLE_AXIS] / I_INT_MAX );
+#endif
 
-void MainWindow::processKeys()
-{
-    keys_multiplier = 1;
+  //yaw axis
+#ifdef INVERT_YAW
+  if( data[I_YAW_AXIS] > 0 )
+    m_aData[A_YAW] = I_MID_DATA + (double)(I_MID_DATA - I_MIN_DATA) * ( (double)data[I_YAW_AXIS] / I_INT_MAX );
+  else
+    m_aData[A_YAW] = I_MID_DATA + (double)(I_MAX_DATA - I_MID_DATA) * ( (double)data[I_YAW_AXIS] / I_INT_MAX );
+#else
+  if( data[I_YAW_AXIS] > 0 )
+    m_aData[A_YAW] = I_MID_DATA - (double)(I_MAX_DATA - I_MID_DATA) * ( (double)data[I_YAW_AXIS] / I_INT_MAX );
+  else
+    m_aData[A_YAW] = I_MID_DATA - (double)(I_MID_DATA - I_MIN_DATA) * ( (double)data[I_YAW_AXIS] / I_INT_MAX );
+#endif
 
-    if( pressed_keys->contains(Qt::Key_Control) )
-        keys_multiplier *= 10;
+  //pitch axis
+#ifdef INVERT_PITCH
+  if( data[I_PITCH_AXIS] > 0 )
+    m_aData[A_PITCH] = I_MID_DATA + (double)(I_MID_DATA - I_MIN_DATA) * ( (double)data[I_PITCH_AXIS] / I_INT_MAX );
+  else
+    m_aData[A_PITCH] = I_MID_DATA + (double)(I_MAX_DATA - I_MID_DATA) * ( (double)data[I_PITCH_AXIS] / I_INT_MAX );
+#else
+  if( data[I_PITCH_AXIS] > 0 )
+    m_aData[A_PITCH] = I_MID_DATA - (double)(I_MAX_DATA - I_MID_DATA) * ( (double)data[I_PITCH_AXIS] / I_INT_MAX );
+  else
+    m_aData[A_PITCH] = I_MID_DATA - (double)(I_MID_DATA - I_MIN_DATA) * ( (double)data[I_PITCH_AXIS] / I_INT_MAX );
+#endif
 
-    if( pressed_keys->contains(Qt::Key_Shift) )
-        keys_multiplier *= 2;
+  //roll axis
+#ifdef INVERT_ROLL
+  if( data[I_ROLL_AXIS] > 0 )
+    m_aData[A_ROLL] = I_MID_DATA + (double)(I_MID_DATA - I_MIN_DATA) * ( (double)data[I_ROLL_AXIS] / I_INT_MAX );
+  else
+    m_aData[A_ROLL] = I_MID_DATA + (double)(I_MAX_DATA - I_MID_DATA) * ( (double)data[I_ROLL_AXIS] / I_INT_MAX );
+#else
+  if( data[I_ROLL_AXIS] > 0 )
+    m_aData[A_ROLL] = I_MID_DATA - (double)(I_MAX_DATA - I_MID_DATA) * ( (double)data[I_ROLL_AXIS] / I_INT_MAX );
+  else
+    m_aData[A_ROLL] = I_MID_DATA - (double)(I_MID_DATA - I_MIN_DATA) * ( (double)data[I_ROLL_AXIS] / I_INT_MAX );
+#endif
 
-    QVector<int> values(getFlyingValues());
+  delete [] data;
 
-    int key;
-    QListIterator<int> it(*pressed_keys);
-    while( it.hasNext() )
-    {
-        key = it.next();
+  normolizeData();
 
-        switch(key)
-        {
-        //trottle
-        case Qt::Key_Up:
-            values[0] += keys_multiplier;
-            break;
-        case Qt::Key_Down:
-            values[0] -= keys_multiplier;
-            break;
-        //roll
-        case Qt::Key_D:
-            values[1] += keys_multiplier;
-            break;
-        case Qt::Key_A:
-            values[1] -= keys_multiplier;
-            break;
-        //pith
-        case Qt::Key_W:
-            values[2] += keys_multiplier;
-            break;
-        case Qt::Key_S:
-            values[2] -= keys_multiplier;
-            break;
-        //yaw
-        case Qt::Key_Right:
-            values[3] += keys_multiplier;
-            break;
-        case Qt::Key_Left:
-            values[3] -= keys_multiplier;
-            break;
-        }
-    }
+  m_cConnection->sendFlyingData(m_aData);
 
-    for(int i = 0; i < 4; i++)
-        if( values[i] > 2000 )
-            values[i] = 2000;
-
-    if(!pressed_keys->isEmpty())
-        setFlyingValues(values);
-    else
-    {
-        QVector<int> values(4, 1500);
-        setFlyingValues(values);
-    }
-
-    if( connection->isValid() )
-        connection->sendFlyingData(values);
-}
-
-QVector<int> MainWindow::getFlyingValues()
-{
-    QVector<int> values;
-
-    values.append(throttle_edit->displayText().toInt());
-    values.append(roll_edit->displayText().toInt());
-    values.append(pitch_edit->displayText().toInt());
-    values.append(yaw_edit->displayText().toInt());
-
-    return values;
-}
-
-void MainWindow::setFlyingValues(QVector<int> values)
-{
-    throttle_edit->setText(QString::number(values[0]));
-    roll_edit->setText(QString::number(values[1]));
-    pitch_edit->setText(QString::number(values[2]));
-    yaw_edit->setText(QString::number(values[3]));
+  m_ceThrottle->setValue( m_aData[A_THROTTLE] );
+  m_ceYaw->setValue( m_aData[A_YAW] );
+  m_cePitch->setValue( m_aData[A_PITCH] );
+  m_ceRoll->setValue( m_aData[A_ROLL] );
 }
 
 void MainWindow::openConnection()
 {
-    QStringList address = server_edit->displayText().split(":");
-    connection->connectToHost(address.at(0), address.at(1).toInt());
+  QStringList address = m_cServerEdit->displayText().split(":");
+  m_cConnection->connectToHost(address.at(0), address.at(1).toInt());
 
-    connect_button->setText("Disconnect");
-    QObject::disconnect(connect_button, SIGNAL(clicked()), this, SLOT(openConnection()));
-    QObject::connect(connect_button, SIGNAL(clicked()), this, SLOT(closeConnection()));
+  m_cBtnConnect->setText("Disconnect");
+  QObject::disconnect(m_cBtnConnect, SIGNAL(clicked()), this, SLOT(openConnection()));
+  QObject::connect(m_cBtnConnect, SIGNAL(clicked()), this, SLOT(closeConnection()));
 }
 
 void MainWindow::closeConnection()
 {
-    connection->close();
+  m_cConnection->close();
 
-    connect_button->setText("Connect");
-    QObject::disconnect(connect_button, SIGNAL(clicked()), this, SLOT(closeConnection()));
-    QObject::connect(connect_button, SIGNAL(clicked()), this, SLOT(openConnection()));
+  m_cBtnConnect->setText("Connect");
+  QObject::disconnect(m_cBtnConnect, SIGNAL(clicked()), this, SLOT(closeConnection()));
+  QObject::connect(m_cBtnConnect, SIGNAL(clicked()), this, SLOT(openConnection()));
 }
 
 void MainWindow::startControl()
 {
-    keys_timer->start(UPDATE_KEYS_TIME);
 
-    control_button->setText("Stop control");
-    QObject::disconnect(control_button, SIGNAL(clicked()), this, SLOT(startControl()));
-    QObject::connect(control_button, SIGNAL(clicked()), this, SLOT(stopControl()));
 
-    this->setFocus();
+  m_cBtnControl->setText("Stop control");
+  QObject::disconnect(m_cBtnControl, SIGNAL(clicked()), this, SLOT(startControl()));
+  QObject::connect(m_cBtnControl, SIGNAL(clicked()), this, SLOT(stopControl()));
+
+  if(m_cData != NULL)
+    m_cData->start();
 }
 
 void MainWindow::stopControl()
 {
-    keys_timer->stop();
+  if(m_cData != NULL)
+    m_cData->stop();
 
-    control_button->setText("Start contol");
-    QObject::connect(control_button, SIGNAL(clicked()), this, SLOT(startControl()));
-    QObject::disconnect(control_button, SIGNAL(clicked()), this, SLOT(stopControl()));
+  m_cBtnControl->setText("Start contol");
+  QObject::connect(m_cBtnControl, SIGNAL(clicked()), this, SLOT(startControl()));
+  QObject::disconnect(m_cBtnControl, SIGNAL(clicked()), this, SLOT(stopControl()));
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    if( connection->isOpen() )
+  if( m_cConnection->isOpen() )
+  {
+    m_cConnection->close();
+  }
+}
+
+void MainWindow::normolizeData()
+{
+  for(int i = 0; i < 4; ++i)
+  {
+    if(m_aData[i] > I_MAX_DATA) m_aData[i] = I_MAX_DATA;
+    else
     {
-        connection->close();
+      if(m_aData[i] < I_MIN_DATA) m_aData[i] = I_MIN_DATA;
+#ifdef STABLE_MID_ROUDING
+      else
+        if((double)abs(I_MID_DATA - m_aData[i]) < ((double)I_MID_DATA * D_DELTA_MID))
+          m_aData[i] = I_MID_DATA;
+#endif
+
     }
+  }
 }

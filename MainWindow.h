@@ -1,69 +1,63 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "include/SDL/SDL.h"
+#include "ControllerData.h"
 #include "Connection.h"
+#include "Defines.h"
 
 #include <QMainWindow>
 #include <QGridLayout>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QLabel>
-#include <QKeyEvent>
-#include <QList>
-#include <QTimer>
-#include <QVector>
+#include <QStatusBar>
+
 
 class MainWindow: public QMainWindow
 {
     Q_OBJECT
+private:
+    QWidget              *m_cWidget;
+    QGridLayout          *m_cLayout;
+    QLabel               *m_cStatusLabel;
 
-public:
-    MainWindow();
+    QLineEdit            *m_cServerEdit;
+    QPushButton          *m_cBtnConnect;
+    QPushButton          *m_cBtnPing;
+    QPushButton          *m_cBtnControl;
+
+    QProgressBar         *m_ceThrottle;
+    QProgressBar         *m_ceRoll;
+    QProgressBar         *m_cePitch;
+    QProgressBar         *m_ceYaw;
+
+    int                   m_aData[4];
+    Connection           *m_cConnection;
+    SDL_Joystick*         m_cJoystick;
+    ControllerData*       m_cData;
+
+    void normolizeData();
 
 private slots:
     void openConnection();
     void closeConnection();
-
     void startControl();
     void stopControl();
 
-    void processKeys();
-
-private:
-    QWidget *central_widget;
-    QGridLayout *layout;
-    QLabel *status_label;
-
-    QLineEdit *server_edit;
-    QPushButton *connect_button;
-    QPushButton *ping_button;
-    QPushButton *control_button;
-
-    QLabel *throttle_label;
-    QLineEdit *throttle_edit;
-
-    QLabel *roll_label;
-    QLineEdit *roll_edit;
-
-    QLabel *pitch_label;
-    QLineEdit *pitch_edit;
-
-    QLabel *yaw_label;
-    QLineEdit *yaw_edit;
-
-    Connection *connection;
-
-    QList<int> *pressed_keys;
-    QTimer *keys_timer;
-    int keys_multiplier;
-
-    QVector<int> getFlyingValues();
-    void setFlyingValues(QVector<int> values);
-
 protected:
-    void keyPressEvent(QKeyEvent *event);
-    void keyReleaseEvent(QKeyEvent *event);
     void closeEvent(QCloseEvent *event);
+
+public:
+    MainWindow();
+    ~MainWindow();
+
+public slots:
+    void updateData(int* data);
+
+signals:
+    void stopUpdate();
 };
 
 #endif // MAINWINDOW_H
